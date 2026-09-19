@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     llm_provider: LLMProvider = LLMProvider.DISABLED
     google_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
-    llm_model: str = "gemini-1.5-pro"
+    llm_model: str = "gemini-2.5-flash"
     llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=8_192, ge=256)
 
