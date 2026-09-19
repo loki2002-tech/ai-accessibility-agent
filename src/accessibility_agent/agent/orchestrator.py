@@ -134,9 +134,22 @@ class ScanOrchestrator:
             try:
                 axe_result = await axe_engine.run(url=self.url, page_title=page_title)
 
-                # Attach initial screenshot to each finding as additional context
+                # Attach element-specific screenshots for each finding
                 for finding in axe_result.findings:
                     finding.evidence.append(initial_screenshot)
+                    
+                    if finding.element.selector:
+                        try:
+                            el_screenshot = await evidence_collector.capture_screenshot(
+                                label=f"element_{finding.finding_id}",
+                                full_page=False,
+                                element_selector=finding.element.selector,
+                            )
+                            if el_screenshot.data:
+                                finding.evidence.append(el_screenshot)
+                        except Exception as e:
+                            log.warning("orchestrator.element_screenshot_failed", selector=finding.element.selector, error=str(e))
+                            
                     result.add_finding(finding)
 
                 result.metrics.axe_violations = axe_result.violations_count
@@ -150,7 +163,24 @@ class ScanOrchestrator:
                 log.error("orchestrator.axe_failed", error=error_msg)
                 result.errors.append(error_msg)
 
-            # ── Step 4: Deduplication ──────────────────────────────────────
+            # ── Step 4: Keyboard Navigation Test ───────────────────────────
+            step += 1
+            log.info("orchestrator.step", step=step, action="run_keyboard_test")
+            try:
+                from accessibility_agent.accessibility.keyboard_tester import KeyboardTester
+                kb_tester = KeyboardTester(browser)
+                kb_findings = await kb_tester.run(url=self.url, page_title=page_title)
+                for finding in kb_findings:
+                    finding.evidence.append(initial_screenshot)
+                    result.add_finding(finding)
+                
+                self._trace(result, step, "keyboard_test", {}, {"findings_generated": len(kb_findings)})
+            except Exception as exc:
+                error_msg = f"Keyboard test failed: {exc}"
+                log.error("orchestrator.keyboard_failed", error=error_msg)
+                result.errors.append(error_msg)
+
+            # ── Step 5: Deduplication ──────────────────────────────────────
             step += 1
             log.info("orchestrator.step", step=step, action="deduplicate")
             dedup.deduplicate(result.findings)
@@ -159,13 +189,32 @@ class ScanOrchestrator:
                 "duplicates": sum(1 for f in result.findings if f.duplicate_of),
             })
 
-            # ── Step 5: Final screenshot ────────────────────────────────────
+            # ── Step 6: AI Reasoning (optional) ───────────────────────────
+            step += 1
+            log.info("orchestrator.step", step=step, action="ai_reasoning")
+            try:
+                from accessibility_agent.ai.reasoning_engine import ReasoningEngine
+                reasoning = ReasoningEngine()
+                if reasoning.is_enabled:
+                    await reasoning.enrich_findings(result.findings)
+                    self._trace(result, step, "ai_reasoning", {},
+                                {"enriched": len([f for f in result.findings if f.ai_reasoning])})
+                else:
+                    log.info("orchestrator.ai_skipped", reason="LLM provider disabled")
+                    self._trace(result, step, "ai_reasoning", {}, {"status": "disabled"})
+            except Exception as exc:
+                error_msg = f"AI reasoning failed: {exc}"
+                log.error("orchestrator.ai_failed", error=error_msg)
+                result.errors.append(error_msg)
+
+            # ── Step 7: Final screenshot ────────────────────────────────────
             final_screenshot = await evidence_collector.capture_screenshot(
                 label="final_state",
                 full_page=True,
             )
 
             result.agent_steps = step
+
 
         # ── Generate Reports ───────────────────────────────────────────────
         report_gen = ReportGenerator(self._output_dir)

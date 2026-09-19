@@ -348,7 +348,9 @@ class BrowserController:
         if element_selector:
             element = await self._page.query_selector(element_selector)  # type: ignore[union-attr]
             if element:
-                return await element.screenshot(**screenshot_kwargs)
+                element_kwargs = screenshot_kwargs.copy()
+                element_kwargs.pop("full_page", None)
+                return await element.screenshot(**element_kwargs)
 
         return await self._page.screenshot(**screenshot_kwargs)  # type: ignore[union-attr]
 

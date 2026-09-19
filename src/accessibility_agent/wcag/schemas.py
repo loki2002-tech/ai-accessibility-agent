@@ -217,8 +217,8 @@ class Finding(BaseModel):
     """
 
     finding_id: str = Field(
-        default_factory=lambda: f"A11Y-{uuid.uuid4().hex[:8].upper()}",
-        description="Stable unique finding identifier",
+        default="",
+        description="Stable unique finding identifier. Deterministically generated if not provided.",
     )
     run_id: str = Field(default="", description="Identifies the scan run that produced this finding")
     url: str = Field(..., min_length=1, description="Exact URL where the finding was detected")
@@ -286,6 +286,16 @@ class Finding(BaseModel):
         default="",
         description="Stable hash identifying the logical component for dedup",
     )
+
+    @model_validator(mode="after")
+    def _generate_finding_id(self) -> "Finding":
+        """Generate a deterministic ID if none is provided."""
+        if not self.finding_id:
+            import hashlib
+            raw = f"{self.url}::{self.rule_id}::{self.element.selector}::{self.wcag.success_criterion}"
+            h = hashlib.sha256(raw.encode()).hexdigest()[:8].upper()
+            self.finding_id = f"A11Y-{h}"
+        return self
 
     @model_validator(mode="after")
     def _validate_evidence_for_confirmed(self) -> "Finding":
