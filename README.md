@@ -1,131 +1,85 @@
-# AI Accessibility Testing Agent
+# 🚀 AI Accessibility Testing Agent
 
-A production-grade, deterministic-first, AI-assisted accessibility testing platform that combines browser automation (Playwright), deterministic rule evaluation (axe-core), and an AI reasoning layer for root-cause analysis, remediation, and evidence-driven WCAG 2.2 reporting.
+A production-grade accessibility testing platform that combines deterministic rule evaluation (axe-core), deep state DOM interaction (Form & Modal testing), and an AI reasoning layer (RAG) for root-cause analysis and remediation.
 
-## Core Principle
+## 🌟 Features
+* **Deep Form Testing:** Automatically submits blank forms to capture injected error messages and validates if they have proper `role="alert"` tags.
+* **Smart Keyboard Testing:** Injects custom JavaScript to verify visible focus rings (`kb-focus-visible`) across the entire DOM.
+* **AI Remediation (RAG):** Uses the Groq LPU API to analyze failing HTML components and writes exactly the CSS/HTML needed to fix them.
+* **Beautiful Reports:** Generates Axe DevTools-style HTML reports with glowing locator boxes, CSS selectors, and full-screen screenshot lightboxes.
+* **REST API:** Includes a fully asynchronous FastAPI web server to trigger scans remotely.
+* **Docker Ready:** Deploy to any cloud environment instantly.
 
+---
+
+## 🛠️ 1. Setup & Installation
+
+1. **Install the dependencies:**
+   ```powershell
+   pip install -e .
+   pip install fastapi uvicorn
+   ```
+
+2. **Install the Playwright Browsers:**
+   *(This downloads the invisible browsers used for testing)*
+   ```powershell
+   playwright install-deps chromium firefox
+   playwright install chromium firefox
+   ```
+
+3. **Configure the AI Brain (`.env` file):**
+   Create a `.env` file in the root directory (or edit the existing one) with your Groq API key:
+   ```env
+   A11Y_LLM_PROVIDER=groq
+   A11Y_GROQ_API_KEYS=gsk_your_api_key_here
+   A11Y_LLM_MODEL=openai/gpt-oss-120b
+   ```
+   *(Note: Ensure you use a valid Groq model like `openai/gpt-oss-120b`!)*
+
+---
+
+## 💻 2. How to run: The Command Line (CLI)
+The fastest way to scan a website is via the terminal. This will pop open a browser, run the tests, and save the reports.
+
+```powershell
+# Windows PowerShell (Sets the Python path first!)
+$env:PYTHONPATH="src"; python -m accessibility_agent.cli scan --url "https://demo.automationtesting.in/Register.html" --agentic
 ```
-DETERMINISTIC TESTING FIRST
-        +
-    EVIDENCE
-        +
-AI REASONING SECOND
-        +
-HUMAN VALIDATION WHERE REQUIRED
-```
+* **Check the results:** Open `reports/RUN-XXXX_report.html` in your web browser!
 
-The AI layer **never replaces** deterministic accessibility rules. It reasons over evidence produced by those rules.
+---
 
-## Architecture
+## 🌐 3. How to run: The REST API
+If you want to connect this tool to a dashboard, a web app, or let other people use it, you can spin it up as a Web Server!
 
-```
-User / CI
-    ↓
-Agent Orchestrator
-    ↓
-Test Planner
-    ↓
-Accessibility Test Engine
-    ├── axe-core (deterministic)
-    ├── DOM Analyzer
-    ├── Accessibility Tree Analyzer
-    ├── Keyboard / Focus Analyzer
-    ├── Contrast Analyzer
-    └── Evidence Collector
-    ↓
-Evidence Normalizer
-    ↓
-WCAG Mapping Engine
-    ↓
-AI Reasoning Layer
-    ↓
-Finding Validator (Pydantic schema enforcement)
-    ↓
-Deduplication & Correlation
-    ↓
-Report Generator (JSON / HTML / CSV)
-    ↓
-Human Review Workflow
-```
+1. **Start the server:**
+   ```powershell
+   $env:PYTHONPATH="src"; python -m accessibility_agent.cli serve --port 8000
+   ```
+2. **Open the interactive dashboard:**
+   Go to **http://127.0.0.1:8000/docs** in your browser.
+3. **Trigger a scan:**
+   Click the green **POST /api/v1/scan** button -> Click **Try it out** -> Click **Execute**.
+4. **View the live reports:**
+   Once completed, you can view the raw JSON at `http://127.0.0.1:8000/api/v1/scans/{run_id}/report`.
 
-## Quick Start
+---
 
-```bash
-# Install dependencies
-pip install -e ".[dev]"
-playwright install chromium
+## 🐳 4. How to run: Docker (Production)
+If you want to put this on an AWS Server or a Raspberry Pi without installing Python, use Docker!
 
-# Run a basic automated scan
-a11y-agent scan --url "https://example.com" --mode automated
+1. **Build the container:**
+   ```bash
+   docker build -t a11y-agent .
+   ```
+2. **Run the container:**
+   ```bash
+   docker run -p 8000:8000 -v ./reports:/app/reports a11y-agent
+   ```
+   *(This starts the API on port 8000 and saves the reports to your local folder!)*
 
-# Full audit
-a11y-agent scan --url "https://example.com" --mode full --output ./reports/
-```
+---
 
-## Testing Modes
-
-| Mode | Description |
-|------|-------------|
-| `automated` | Deterministic axe-core scan |
-| `keyboard` | Keyboard and focus-order testing |
-| `semantic` | DOM and accessibility tree inspection |
-| `visual` | Screenshot-based evidence collection |
-| `interaction` | Dynamic content and state-change testing |
-| `dynamic` | SPA route change and live region monitoring |
-| `manual-assist` | Generate manual test procedures |
-| `ai-analysis` | AI reasoning over collected evidence |
-| `full` | Full audit orchestrating all modes |
-
-## WCAG Coverage
-
-- **WCAG 2.2** — Level A and AA (primary)
-- Detections mapped to W3C ACT Rules where applicable
-- Clear distinction between CONFIRMED, LIKELY, POSSIBLE, and REQUIRES_MANUAL_REVIEW
-
-## Repository Structure
-
-```
-src/accessibility_agent/
-├── agent/              # Orchestrator, planner, tools, memory
-├── accessibility/      # Test engines (axe, dom, keyboard, focus, contrast)
-├── wcag/               # SC mappings, Pydantic schemas, validators
-├── evidence/           # Screenshot, DOM, AX tree capture
-├── reporting/          # JSON, HTML, CSV generators
-└── cli.py              # Typer CLI entry point
-
-tests/
-├── unit/
-├── integration/
-├── corpus/             # Known-pass / known-fail HTML fixtures
-└── evaluation/         # Precision/recall measurement
-
-config/
-├── settings.yaml
-└── prompts/
-
-docs/
-```
-
-## Development
-
-```bash
-# Run tests
-pytest
-
-# Type check
-mypy src/
-
-# Lint
-ruff check src/ tests/
-```
-
-## Security
-
-- No credentials in logs, reports, or screenshots
-- Configurable PII/secret redaction before LLM calls
-- Browser contexts are isolated per scan run
-- Session state stored encrypted (configurable)
-
-## Disclaimer
-
-This tool assists accessibility testing. A clean scan result **does not constitute WCAG conformance**. Human expert review is always required for full conformance determination.
+## ⚠️ Important Note on Groq Rate Limits
+The AI Reasoning Engine reads the *entire source code* of the website to find accessibility contradictions. If you are using the **Free Tier** of the Groq API, you will likely hit their "Tokens Per Minute" limit (HTTP 429) on large websites. 
+If this happens, the scanner will elegantly fallback to standard testing and generate the report without the AI remediation blocks.

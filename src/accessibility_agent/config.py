@@ -31,6 +31,8 @@ class LogLevel(str, Enum):
 class LLMProvider(str, Enum):
     GOOGLE = "google"
     OPENAI = "openai"
+    OLLAMA = "ollama"
+    GROQ = "groq"
     DISABLED = "disabled"  # Run in deterministic-only mode
 
 
@@ -70,9 +72,12 @@ class Settings(BaseSettings):
     llm_provider: LLMProvider = LLMProvider.DISABLED
     google_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
-    llm_model: str = "gemini-2.5-flash"
+    groq_api_keys: SecretStr | None = Field(default=None, alias="A11Y_GROQ_API_KEYS")
+    ollama_base_url: str = "http://localhost:11434"
+    llm_model: str = "openai/gpt-oss-120b"
     llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=8_192, ge=256)
+    llm_batch_size: int = Field(default=10, ge=1, le=50, description="Findings per AI batch call")
 
     # ── Axe-core ─────────────────────────────────────────────────────────────
     axe_version: str = "4.9.1"
@@ -114,6 +119,15 @@ class Settings(BaseSettings):
     def _expand_path(cls, v: Any) -> Path:
         return Path(v).expanduser().resolve()
 
+    @model_validator(mode="before")
+    @classmethod
+    def _map_legacy_groq_key(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Support the old A11Y_GROQ_API_KEY environment variable."""
+        legacy_key = data.get("A11Y_GROQ_API_KEY")
+        if legacy_key and not data.get("A11Y_GROQ_API_KEYS"):
+            data["A11Y_GROQ_API_KEYS"] = legacy_key
+        return data
+
     @model_validator(mode="after")
     def _validate_llm_keys(self) -> "Settings":
         if self.llm_provider == LLMProvider.GOOGLE and not self.google_api_key:
@@ -124,6 +138,12 @@ class Settings(BaseSettings):
         if self.llm_provider == LLMProvider.OPENAI and not self.openai_api_key:
             raise ValueError(
                 "A11Y_OPENAI_API_KEY must be set when llm_provider=openai."
+            )
+        if self.llm_provider == LLMProvider.GROQ and not self.groq_api_keys:
+            raise ValueError(
+                "A11Y_GROQ_API_KEYS must be set when llm_provider=groq. "
+                "Get a free key at console.groq.com and add it to your .env file. "
+                "You can provide a comma-separated list of keys."
             )
         return self
 

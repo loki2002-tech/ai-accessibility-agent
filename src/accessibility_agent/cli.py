@@ -73,6 +73,10 @@ def cmd_scan(
         str,
         typer.Option("--formats", help="Comma-separated report formats: json,html,csv"),
     ] = "json,html",
+    agentic: Annotated[
+        bool,
+        typer.Option("--agentic", help="Enable Agentic Observe/Plan/Act loop for dynamic DOM interaction"),
+    ] = False,
 ) -> None:
     """
     Run an accessibility scan against a URL.
@@ -106,6 +110,7 @@ def cmd_scan(
     console.print(f"\n[bold blue]♿ AI Accessibility Testing Agent[/bold blue]")
     console.print(f"   URL: [link={url}]{url}[/link]")
     console.print(f"   Mode: {mode}")
+    console.print(f"   Agentic: {agentic}")
     console.print(f"   Browser: {browser} ({'headless' if headless else 'headed'})")
     console.print(f"   Viewport: {viewport}\n")
 
@@ -120,6 +125,7 @@ def cmd_scan(
         headless=headless,
         viewport=(w, h),
         report_formats=report_formats,
+        agentic=agentic,
     )
 
     with Progress(
@@ -191,6 +197,34 @@ def cmd_version() -> None:
     console.print(f"  Default browser: {settings.browser_type.value}")
     console.print(f"  LLM provider: {settings.llm_provider.value}")
 
+
+@app.command("serve")
+def cmd_serve(
+    host: Annotated[str, typer.Option("--host", help="Host to bind the server to")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="Port to bind the server to")] = 8000,
+    reload: Annotated[bool, typer.Option("--reload", help="Enable auto-reload for development")] = False,
+) -> None:
+    """
+    Start the REST API server.
+
+    Examples:
+    
+    \b
+    # Start on default port 8000
+    a11y-agent serve
+
+    \b
+    # Start on custom host/port
+    a11y-agent serve --host 0.0.0.0 --port 8080
+    """
+    console.print(f"\n[bold blue]🚀 Starting API Server on http://{host}:{port}[/bold blue]\n")
+    try:
+        from accessibility_agent.api.server import run_server
+        run_server(host=host, port=port, reload=reload)
+    except ImportError as e:
+        err_console.print(f"[red]Error starting server: {e}[/red]")
+        err_console.print("Ensure you have installed fastapi and uvicorn: pip install fastapi uvicorn")
+        raise typer.Exit(1)
 
 if __name__ == "__main__":
     app()

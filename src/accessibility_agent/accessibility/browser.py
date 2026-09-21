@@ -102,6 +102,7 @@ class BrowserController:
         context_kwargs: dict[str, Any] = {
             "viewport": self._viewport,
             "extra_http_headers": self._redact_headers(self._extra_http_headers),
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
         if self._proxy:
             context_kwargs["proxy"] = self._proxy
@@ -149,7 +150,7 @@ class BrowserController:
 
         response = await self._page.goto(  # type: ignore[union-attr]
             url,
-            wait_until="networkidle",
+            wait_until="domcontentloaded",
             timeout=settings.navigation_timeout,
         )
 
@@ -276,7 +277,8 @@ class BrowserController:
                     outerHTML: el.outerHTML.slice(0, 1024),
                     selector: (function getSelector(e) {
                         if (e.id) return '#' + e.id;
-                        if (e.className) return e.tagName.toLowerCase() + '.' + e.className.split(' ')[0];
+                        const cls = e.getAttribute('class');
+                        if (cls) return e.tagName.toLowerCase() + '.' + cls.split(' ')[0];
                         return e.tagName.toLowerCase();
                     })(el),
                 };
@@ -306,8 +308,25 @@ class BrowserController:
         log.debug("browser.click", selector=selector)
         self._log_interaction("click_element", {"selector": selector})
 
-        await self._page.click(selector)  # type: ignore[union-attr]
-        await asyncio.sleep(0.15)
+        try:
+            # 5-second timeout so hallucinated selectors fail fast
+            await self._page.click(selector, timeout=5000)  # type: ignore[union-attr]
+            
+            # Wait for network idle or animations to settle
+            # We catch exceptions because if it's an SPA click, it might not trigger a load state
+            try:
+                await self._page.wait_for_load_state("networkidle", timeout=2000)  # type: ignore[union-attr]
+            except Exception:
+                pass
+            
+            await asyncio.sleep(0.5) # Extra buffer for CSS animations
+            
+            # If the click navigated us to a completely different domain, we might want to log it
+            current_url = self._page.url # type: ignore[union-attr]
+            
+        except Exception as exc:
+            log.warning("browser.click_failed", selector=selector, error=str(exc))
+            return {"clicked_selector": selector, "error": str(exc)}
 
         focused = await self.get_focused_element_info()
         return {"clicked_selector": selector, "focused_element": focused}

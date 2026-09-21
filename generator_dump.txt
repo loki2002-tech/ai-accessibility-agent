@@ -79,45 +79,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .violation-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; display: grid; grid-template-columns: 400px 1fr; align-items: stretch; transition: display 0.3s; }
     @media (max-width: 1024px) { .violation-card { grid-template-columns: 1fr; } }
     
-    .card-screenshot { background: #18212f; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; border-right: 1px solid var(--border); overflow: hidden; position: relative; }
-    .screenshot-container { position: relative; max-width: 100%; display: inline-block; cursor: zoom-in; }
-    .card-screenshot img { max-width: 100%; max-height: 500px; object-fit: contain; border-radius: 8px; border: 1px solid #334155; box-shadow: 0 8px 24px rgba(0,0,0,0.4); display: block; transition: transform 0.2s; }
-    .card-screenshot img:hover { transform: scale(1.02); }
-    
-    /* Fullscreen Modal */
-    .lightbox {
-      display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%;
-      background-color: rgba(0,0,0,0.9); overflow: auto; align-items: center; justify-content: center;
-    }
-    .lightbox.active { display: flex; flex-direction: column; }
-    .lightbox-content-wrapper { position: relative; max-width: 95%; max-height: 90vh; }
-    .lightbox-img { max-width: 100%; max-height: 90vh; object-fit: contain; box-shadow: 0 0 40px rgba(0,0,0,0.8); border: 1px solid #334155; }
-    .lightbox-close {
-      position: absolute; top: 20px; right: 30px; color: #fff; font-size: 40px; font-weight: bold; cursor: pointer; transition: color 0.2s;
-    }
-    .lightbox-close:hover { color: #818cf8; }
-
-    .locator-box {
-      position: absolute; display: none; pointer-events: none;
-      box-shadow: 0 0 0 3px #b82dd2, 0 0 10px 3px rgba(184,45,210,0.8);
-      border: 2px solid #fff; z-index: 10;
-      border-radius: 2px;
-    }
-    .locator-tooltip {
-      position: absolute; top: 100%; left: -2px; margin-top: 8px;
-      background: #fff; color: #111827; border: 1px solid #111827;
-      padding: 6px 10px; border-radius: 4px; font-size: 0.75rem; font-family: 'Inter', sans-serif;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3); width: max-content; min-width: 180px; z-index: 20;
-    }
-    .locator-tooltip b { color: #b82dd2; font-family: monospace; font-size: 0.8rem; }
-    .locator-tooltip .tt-row { display: flex; justify-content: space-between; margin-top: 4px; color: #4b5563; }
-    .locator-tooltip .tt-row span:first-child { color: #6b7280; }
-    .locator-tooltip::before {
-      content: ''; position: absolute; top: -5px; left: 10px;
-      width: 8px; height: 8px; background: #fff; border-left: 1px solid #111827; border-top: 1px solid #111827;
-      transform: rotate(45deg);
-    }
-    
+    .card-screenshot { background: #18212f; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; border-right: 1px solid var(--border); }
+    .card-screenshot img { max-width: 100%; max-height: 350px; object-fit: contain; border-radius: 8px; border: 1px solid #334155; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .no-screenshot { color: #64748b; font-style: italic; font-size: 0.9rem; }
     
     .card-details { padding: 24px 32px; display: flex; flex-direction: column; gap: 16px; }
@@ -137,29 +100,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .explanation-block p { font-size: 0.95rem; color: #e2e8f0; line-height: 1.6; }
     .explanation-block p:not(:last-child) { margin-bottom: 12px; }
 
-    /* Buttons block */
-    .button-group { display: flex; gap: 8px; margin-top: 12px; }
-    
+    /* Selector Copy Block */
     .xpath-container { display: flex; align-items: center; gap: 12px; background: #0f172a; padding: 10px 16px; border-radius: 8px; border: 1px solid #334155; }
     .xpath-container span { color: #94a3b8; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; }
     .xpath-container code { color: #a78bfa; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem; word-break: break-all; flex: 1; }
-    .btn-secondary { background: #334155; color: #f8fafc; border: 1px solid #475569; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 700; transition: background 0.2s; display: flex; align-items: center; gap: 6px; }
-    .btn-secondary:hover { background: #475569; }
-    .copy-btn { background: #3b82f6; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 700; transition: background 0.2s; display: flex; align-items: center; gap: 6px; }
+    .copy-btn { background: #3b82f6; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 700; transition: background 0.2s; }
     .copy-btn:hover { background: #2563eb; }
-    .btn-locate { background: #818cf8; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 700; transition: background 0.2s; display: flex; align-items: center; gap: 6px; }
-    .btn-locate:hover { background: #6366f1; }
-      .test-plan-section { background: var(--surface); border: 1px solid #334155; border-radius: 12px; margin-bottom: 24px; overflow: hidden; }
-    .test-plan-section summary { padding: 16px 20px; cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none; }
-    .test-plan-body { padding: 0 20px 20px; }
-      .test-plan-steps { display: flex; flex-direction: column; gap: 10px; }
-      .test-plan-step { display: flex; gap: 14px; align-items: flex-start; background: var(--surface2); border-radius: 8px; padding: 12px 16px; border-left: 3px solid #818cf8; }
-      .step-number { font-size: 1.2rem; font-weight: 800; color: #818cf8; min-width: 28px; }
-      .step-body { flex: 1; }
-      .step-action { display: inline-block; background: #1e1b4b; color: #818cf8; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; }
-      .step-target { color: #e2e8f0; font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; font-family: 'Courier New', monospace; }
-      .step-reason { color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px; }
-      .step-wcag { display: flex; gap: 6px; flex-wrap: wrap; }
     .copy-btn.copied { background: #10b981; }
 
     /* AI Remediation */
@@ -188,9 +134,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .scroll-top.visible { opacity: 1; pointer-events: auto; }
     .scroll-top:hover { transform: translateY(-3px); background: #6366f1; }
 
-    .warning-card { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin-top: 16px; margin-bottom: 16px; }
-    .warning-card h4 { color: #b45309; margin: 0 0 8px 0; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
-    .warning-card ul { margin: 0; padding-left: 20px; color: #92400e; font-size: 0.9rem; }
     .footer { text-align: center; padding: 40px; color: #64748b; font-size: 0.85rem; border-top: 1px solid var(--border); margin-top: 60px; }
   </style>
   <script>
@@ -207,107 +150,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     // Copy to clipboard
-    
-    function locateElement(btn) {
-      const container = btn.closest('.card-screenshot').querySelector('.screenshot-container');
-      const img = container.querySelector('.full-page-img');
-      const box = container.querySelector('.locator-box');
-      
-      if (!img || !box) return;
-      
-      if (img.naturalWidth === 0) {
-          img.onload = () => locateElement(btn);
-          return;
-      }
-      
-      const scaleX = img.clientWidth / img.naturalWidth;
-      const scaleY = scaleX;
-      
-      const origX = parseFloat(box.dataset.x);
-      const origY = parseFloat(box.dataset.y);
-      const origW = parseFloat(box.dataset.w);
-      const origH = parseFloat(box.dataset.h);
-      
-      box.style.left = (origX * scaleX) + 'px';
-      box.style.top = (origY * scaleY) + 'px';
-      box.style.width = (origW * scaleX) + 'px';
-      box.style.height = (origH * scaleY) + 'px';
-      
-      if (box.style.display === 'block') {
-          box.style.display = 'none';
-      } else {
-          box.style.display = 'block';
-          // Ensure container is scrolled if needed
-          const card = btn.closest('.card-screenshot');
-          if (card) {
-            card.scrollTop = (origY * scaleY) - 50;
-          }
-      }
-    }
-
-    function openLightbox(imgElement) {
-      const container = imgElement.closest('.screenshot-container');
-      const box = container.querySelector('.locator-box');
-      
-      const lightbox = document.getElementById('lightbox');
-      const lbImg = document.getElementById('lb-img');
-      const lbBox = document.getElementById('lb-box');
-      const lbTooltip = document.getElementById('lb-tooltip');
-      
-      lbImg.src = imgElement.src;
-      
-      lightbox.classList.add('active');
-      
-      lbImg.onload = () => {
-        if (!box) {
-          lbBox.style.display = 'none';
-          return;
-        }
-        
-        const scaleX = lbImg.clientWidth / lbImg.naturalWidth;
-        const scaleY = scaleX;
-        
-        const origX = parseFloat(box.dataset.x);
-        const origY = parseFloat(box.dataset.y);
-        const origW = parseFloat(box.dataset.w);
-        const origH = parseFloat(box.dataset.h);
-        
-        lbBox.style.left = (origX * scaleX) + 'px';
-        lbBox.style.top = (origY * scaleY) + 'px';
-        lbBox.style.width = (origW * scaleX) + 'px';
-        lbBox.style.height = (origH * scaleY) + 'px';
-        lbBox.style.display = 'block';
-        
-        // Copy tooltip content
-        const tooltip = box.querySelector('.locator-tooltip');
-        if (tooltip && lbTooltip) {
-          lbTooltip.innerHTML = tooltip.innerHTML;
-        }
-      };
-    }
-
-    function closeLightbox() {
-      document.getElementById('lightbox').classList.remove('active');
-    }
-
-    function shareIssue(btn) {
-      const card = btn.closest('.violation-card');
-      const title = card.querySelector('.violation-title').innerText;
-      const wcag = card.querySelector('.badge-wcag').innerText;
-      const selector = btn.getAttribute('data-selector');
-      const text = `Accessibility Issue: ${title}\nWCAG Rule: ${wcag}\nSelector: ${selector}\n\nPlease review the report for AI remediation suggestions.`;
-      
-      navigator.clipboard.writeText(text).then(() => {
-        const originalText = btn.innerHTML;
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!`;
-        btn.classList.add('copied');
-        setTimeout(() => {
-          btn.innerHTML = originalText;
-          btn.classList.remove('copied');
-        }, 2000);
-      });
-    }
-
     function copySelector(btn) {
       const selector = btn.getAttribute('data-selector');
       navigator.clipboard.writeText(selector).then(() => {
@@ -415,38 +257,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- AI Test Plan (only shown when agentic scan was run) -->
-  {% if result.scan_plan %}
-  <details class="test-plan-section" open>
-    <summary>
-      <span style="font-size:1.1rem; font-weight:700; color:#818cf8;">🤖 AI Test Plan</span>
-      <span style="color:#94a3b8; font-size:0.85rem; margin-left:12px;">{{ result.scan_plan | length }} planned steps generated before scanning</span>
-    </summary>
-    <div class="test-plan-body">
-      <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:16px;">The AI agent analyzed the page's accessibility tree and generated this test plan before clicking anything. This shows exactly what the agent decided to test and why.</p>
-      <div class="test-plan-steps">
-        {% for step in result.scan_plan %}
-        <div class="test-plan-step">
-          <div class="step-number">{{ step.step }}</div>
-          <div class="step-body">
-            <div class="step-action">{{ step.action | upper }}</div>
-            <div class="step-target">{{ step.target }}</div>
-            <div class="step-reason">{{ step.reason }}</div>
-            {% if step.wcag_criteria %}
-            <div class="step-wcag">
-              {% for crit in step.wcag_criteria %}
-              <span class="severity-badge badge-wcag">WCAG {{ crit }}</span>
-              {% endfor %}
-            </div>
-            {% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </details>
-  {% endif %}
-
   <!-- Dropdown Filters -->
   <div class="filter-bar">
     <select id="wcagFilter" onchange="applyFilters()">
@@ -495,56 +305,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       
       <!-- Screenshot -->
       <div class="card-screenshot">
-        {% set ns = namespace(has_shot=false) %}
+        {% set has_shot = false %}
         {% for ev in finding.evidence %}
-          {% if ev.evidence_type == 'screenshot' %}
-            {% if ev.data %}
-              {% set ns.has_shot = true %}
-              <div class="screenshot-container">
-                <img src="data:image/png;base64,{{ ev.data }}" alt="Page screenshot showing the accessibility issue" loading="lazy" class="full-page-img" onclick="openLightbox(this)">
-                {% if finding.element.bounding_box %}
-                <div class="locator-box" 
-                     data-x="{{ finding.element.bounding_box.x }}" 
-                     data-y="{{ finding.element.bounding_box.y }}" 
-                     data-w="{{ finding.element.bounding_box.width }}" 
-                     data-h="{{ finding.element.bounding_box.height }}">
-                  <div class="locator-tooltip">
-                    <b>{{ finding.element.selector }}</b>
-                    <div class="tt-row">
-                      <span>Dimensions</span>
-                      <span>{{ finding.element.bounding_box.width | round | int }} x {{ finding.element.bounding_box.height | round | int }}</span>
-                    </div>
-                  </div>
-                </div>
-                {% endif %}
-              </div>
-            {% elif ev.screenshot_ref_id and ev.screenshot_ref_id in result.shared_screenshots %}
-              {% set ns.has_shot = true %}
-              <div class="screenshot-container">
-                <img data-ref-id="{{ ev.screenshot_ref_id }}" alt="Page screenshot showing the accessibility issue" loading="lazy" class="full-page-img" onclick="openLightbox(this)">
-                {% if finding.element.bounding_box %}
-                <div class="locator-box" 
-                     data-x="{{ finding.element.bounding_box.x }}" 
-                     data-y="{{ finding.element.bounding_box.y }}" 
-                     data-w="{{ finding.element.bounding_box.width }}" 
-                     data-h="{{ finding.element.bounding_box.height }}">
-                  <div class="locator-tooltip">{{ finding.element.selector }}<br>Dimensions: {{ finding.element.bounding_box.width | round }}x{{ finding.element.bounding_box.height | round }}</div>
-                </div>
-                {% endif %}
-              </div>
-            {% endif %}
-            {% if ns.has_shot and finding.element.bounding_box %}
-            <div class="button-group">
-              <button class="btn-locate" onclick="locateElement(this)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
-                Locate Element
-              </button>
-            </div>
-            {% endif %}
+          {% if ev.evidence_type == 'screenshot' and ev.data %}
+            {% set has_shot = true %}
+            <img src="data:image/png;base64,{{ ev.data }}" alt="Cropped element screenshot" loading="lazy">
           {% endif %}
         {% endfor %}
-        {% if not ns.has_shot %}
-        <div class="no-screenshot">Screenshot not captured</div>
+        {% if not has_shot %}
+          <div class="no-screenshot">Screenshot not captured</div>
         {% endif %}
       </div>
       
@@ -564,13 +333,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
         
         <div class="violation-title">{{ finding.description }}</div>
-        
-        <div class="button-group" style="margin-bottom: 12px; margin-top: 4px;">
-           <button class="btn-secondary" onclick="shareIssue(this)">
-             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
-             Share Issue
-           </button>
-        </div>
         
         <div class="explanation-block">
           <h4>Axe-Core / WCAG Validation</h4>
@@ -592,25 +354,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <p style="color:#34d399; font-size:0.9rem; margin-bottom:12px; font-weight:600;">{{ finding.remediation.summary }}</p>
           {% endif %}
           
-          {% if finding.remediation.contradiction_warnings %}
-          <div class="warning-card">
-            <h4>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                <line x1="12" y1="9" x2="12" y2="13"></line>
-                <line x1="12" y1="17" x2="12.01" y2="17"></line>
-              </svg>
-              RAG Contradiction Warning
-            </h4>
-            <p style="margin: 0 0 8px 0; color: #92400e; font-size: 0.9rem;">The proposed fix above may introduce new violations according to the WCAG Knowledge Base:</p>
-            <ul>
-              {% for warning in finding.remediation.contradiction_warnings %}
-              <li>{{ warning }}</li>
-              {% endfor %}
-            </ul>
-          </div>
-          {% endif %}
-          
           <div class="code-tabs">
             <button class="code-tab active" onclick="switchTab(this, 'broken-{{ uuid }}', 'fix-{{ uuid }}')">Broken Code</button>
             <button class="code-tab" onclick="switchTab(this, 'fix-{{ uuid }}', 'broken-{{ uuid }}')">Fixed Code</button>
@@ -626,13 +369,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
         {% endif %}
 
-        <div class="wcag-ref" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>Verified against WCAG {{ finding.wcag.version.value }} Standard (Level {{ finding.wcag.level.value }})</span>
-          {% if finding.wcag.url %}
-          <a href="{{ finding.wcag.url }}" target="_blank" style="color: #6366f1; text-decoration: none; font-weight: 500; font-size: 0.9rem;">
-            Read Official W3C Spec ↗
-          </a>
-          {% endif %}
+        <div class="wcag-ref">
+          Verified against WCAG {{ finding.wcag.version }} Standard (Level {{ finding.wcag.level.value }})
         </div>
       </div>
     </div>
@@ -645,33 +383,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </footer>
 </main>
 
-<!-- Lightbox -->
-<div id="lightbox" class="lightbox" onclick="if(event.target===this) closeLightbox()">
-  <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
-  <div class="lightbox-content-wrapper">
-    <img id="lb-img" class="lightbox-img" src="">
-    <div id="lb-box" class="locator-box" style="display:none">
-      <div id="lb-tooltip" class="locator-tooltip"></div>
-    </div>
-  </div>
-</div>
-
 <button id="scrollTopBtn" class="scroll-top" onclick="scrollToTop()" aria-label="Scroll to top">↑</button>
 
-<script>
-const SHARED_SCREENSHOTS = {
-  {% for ref_id, b64 in result.shared_screenshots.items() %}
-  "{{ ref_id }}": "data:image/png;base64,{{ b64 }}",
-  {% endfor %}
-};
-
-document.querySelectorAll('img[data-ref-id]').forEach(img => {
-  const refId = img.getAttribute('data-ref-id');
-  if (SHARED_SCREENSHOTS[refId]) {
-    img.src = SHARED_SCREENSHOTS[refId];
-  }
-});
-</script>
 </body>
 </html>"""
 

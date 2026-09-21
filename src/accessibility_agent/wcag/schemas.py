@@ -132,6 +132,9 @@ class ElementLocator(BaseModel):
     role: str = Field(default="", description="ARIA / accessible role")
     accessible_name: str = Field(default="")
     accessible_description: str = Field(default="")
+    bounding_box: dict[str, float] | None = Field(
+        default=None, description="x, y, width, height coordinates"
+    )
     html: str = Field(default="", description="Outer HTML of the element (truncated to 2048 chars)")
     text_content: str = Field(default="")
 
@@ -158,6 +161,11 @@ class EvidenceItem(BaseModel):
     file_path: str = Field(
         default="",
         description="Relative path to persisted evidence file on disk",
+    )
+    screenshot_ref_id: str = Field(
+        default="",
+        description="If set, this item is a reference to a shared screenshot in ScanResult.shared_screenshots. "
+                    "The 'data' field will be empty; use this key to look up the image.",
     )
     url: str = Field(default="", description="Page URL at time of capture")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -190,6 +198,10 @@ class RemediationGuidance(BaseModel):
     testing_guidance: str = Field(
         default="",
         description="How a developer can verify the fix is correct",
+    )
+    contradiction_warnings: list[str] = Field(
+        default_factory=list,
+        description="Warnings from the RAG engine if the proposed fix violates other WCAG rules",
     )
 
 
@@ -367,6 +379,16 @@ class ScanResult(BaseModel):
         description="Full ordered trace of agent decisions and tool calls",
     )
     errors: list[str] = Field(default_factory=list, description="Non-fatal errors during scan")
+    shared_screenshots: dict[str, str] = Field(
+        default_factory=dict,
+        description="Map of screenshot_ref_id → base64 PNG. Findings reference these by ID "
+                    "instead of embedding their own copy, preventing massive file bloat.",
+    )
+    scan_plan: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="AI-generated test plan produced before scanning begins. "
+                    "Each item: {step, action, target, reason}",
+    )
 
     def add_finding(self, finding: Finding) -> None:
         finding.run_id = self.run_id
@@ -377,24 +399,24 @@ class ScanResult(BaseModel):
         self.completed_at = datetime.now(timezone.utc)
         m = self.metrics
         m.total_findings = len([f for f in self.findings if f.duplicate_of is None])
-        m.confirmed_findings = len([f for f in self.findings if f.status == FindingStatus.CONFIRMED])
-        m.likely_findings = len([f for f in self.findings if f.status == FindingStatus.LIKELY])
-        m.possible_findings = len([f for f in self.findings if f.status == FindingStatus.POSSIBLE])
+        m.confirmed_findings = len([f for f in self.findings if f.status == FindingStatus.CONFIRMED and f.duplicate_of is None])
+        m.likely_findings = len([f for f in self.findings if f.status == FindingStatus.LIKELY and f.duplicate_of is None])
+        m.possible_findings = len([f for f in self.findings if f.status == FindingStatus.POSSIBLE and f.duplicate_of is None])
         m.manual_review_findings = len(
-            [f for f in self.findings if f.status == FindingStatus.REQUIRES_MANUAL_REVIEW]
+            [f for f in self.findings if f.status == FindingStatus.REQUIRES_MANUAL_REVIEW and f.duplicate_of is None]
         )
-        m.passed_checks = len([f for f in self.findings if f.status == FindingStatus.PASS])
+        m.passed_checks = len([f for f in self.findings if f.status == FindingStatus.PASS and f.duplicate_of is None])
         m.not_applicable_checks = len(
-            [f for f in self.findings if f.status == FindingStatus.NOT_APPLICABLE]
+            [f for f in self.findings if f.status == FindingStatus.NOT_APPLICABLE and f.duplicate_of is None]
         )
         m.level_a_findings = len(
-            [f for f in self.findings if f.wcag.level == WCAGLevel.A and f.status == FindingStatus.CONFIRMED]
+            [f for f in self.findings if f.wcag.level == WCAGLevel.A and f.status == FindingStatus.CONFIRMED and f.duplicate_of is None]
         )
         m.level_aa_findings = len(
-            [f for f in self.findings if f.wcag.level == WCAGLevel.AA and f.status == FindingStatus.CONFIRMED]
+            [f for f in self.findings if f.wcag.level == WCAGLevel.AA and f.status == FindingStatus.CONFIRMED and f.duplicate_of is None]
         )
         m.automated_findings = len(
-            [f for f in self.findings if f.detection_method == DetectionMethod.AUTOMATED]
+            [f for f in self.findings if f.detection_method == DetectionMethod.AUTOMATED and f.duplicate_of is None]
         )
         m.ai_assisted_findings = len(
             [f for f in self.findings if f.detection_method == DetectionMethod.AI_ASSISTED]
