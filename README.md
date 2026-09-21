@@ -83,3 +83,24 @@ If you want to put this on an AWS Server or a Raspberry Pi without installing Py
 ## ⚠️ Important Note on Groq Rate Limits
 The AI Reasoning Engine reads the *entire source code* of the website to find accessibility contradictions. If you are using the **Free Tier** of the Groq API, you will likely hit their "Tokens Per Minute" limit (HTTP 429) on large websites. 
 If this happens, the scanner will elegantly fallback to standard testing and generate the report without the AI remediation blocks.
+
+---
+
+## ?? 5. CI/CD: How to run in GitHub Actions
+
+This project includes a fully functional GitHub Actions pipeline (.github/workflows/accessibility-test.yml). There are two ways to use it:
+
+### Option A: Centralized Testing (In this repository)
+If you want to use this repository as a remote scanning server:
+1. Go to your GitHub Repository -> **Settings** -> **Secrets and variables** -> **Actions**.
+2. Create a new secret called GROQ_API_KEY and paste your key(s).
+3. Go to the **Actions** tab on GitHub, click **AI Accessibility Scan** on the left, and click **Run workflow**. It will boot up a cloud server, run the test against https://allcanaccess.com/, and generate a report!
+
+### Option B: Integrated Frontend Testing (Blocking bad PRs)
+If you want to protect a specific frontend application (e.g. your company's React website):
+1. Copy the .github/workflows/accessibility-test.yml file from this project.
+2. Paste it into the .github/workflows/ folder of your **Frontend React Project**.
+3. Modify the file so it builds your React app and tests your localhost instead of a remote URL.
+4. In your React repo's GitHub Settings, add your GROQ_API_KEY secret.
+Now, whenever a frontend developer tries to merge broken UI code, GitHub will run the agent, find the bugs, and block the Pull Request!
+
