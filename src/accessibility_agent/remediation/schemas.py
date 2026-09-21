@@ -391,3 +391,216 @@ class RemediationResult(BaseModel):
         """Mark the remediation as complete with a terminal status."""
         self.status = status
         self.completed_at = datetime.now(timezone.utc)
+
+
+# ── Problem Type ──────────────────────────────────────────────────────────────
+
+
+class ProblemType(str, Enum):
+    """
+    The category of accessibility problem.
+
+    This drives the patch strategy — different problem types require
+    different kinds of fixes (markup vs. ARIA vs. CSS vs. content).
+    """
+
+    MISSING_MARKUP = "missing_markup"
+    """A required HTML attribute or element is absent (lang, title, alt, label)."""
+
+    INCORRECT_ARIA = "incorrect_aria"
+    """An ARIA attribute is wrong, missing, or misused on an element."""
+
+    KEYBOARD_ACCESS = "keyboard_access"
+    """An interactive element is not keyboard accessible."""
+
+    FOCUS_VISIBILITY = "focus_visibility"
+    """Focus indicator is hidden or removed (outline:none without replacement)."""
+
+    LINK_TEXT = "link_text"
+    """Link or button text is non-descriptive ('click here', 'more', 'read more')."""
+
+    IMAGE_ALT = "image_alt"
+    """Image is missing an alt attribute or has inappropriate alt text."""
+
+    COLOR_CONTRAST = "color_contrast"
+    """Text/background color contrast ratio is below WCAG threshold."""
+
+    SEMANTIC_STRUCTURE = "semantic_structure"
+    """Wrong or missing heading hierarchy, landmark, list, or table structure."""
+
+    FORM_LABELING = "form_labeling"
+    """Form input is missing an associated label element or aria-label."""
+
+    CONTENT = "content"
+    """Issue requires judgment about content meaning or intent."""
+
+    UNKNOWN = "unknown"
+    """Could not be classified into a specific problem type."""
+
+
+# ── Source Context ────────────────────────────────────────────────────────────
+
+
+class SourceContext(BaseModel):
+    """
+    Enriched analysis of the source code surrounding a matched location.
+
+    Produced by SourceAnalyzer.  Provides the RemediationPlanner and
+    PatchGenerator with everything they need to understand what to change
+    and why — without having to re-read the file.
+    """
+
+    # Location reference
+    file_path: str
+    start_line: int
+    end_line: int
+    language: str
+    framework: ApplicationFramework = ApplicationFramework.UNKNOWN
+
+    # The matched element and its context
+    matched_element_line: str = Field(
+        default="",
+        description="The exact source line containing the problematic element",
+    )
+    block_source: str = Field(
+        default="",
+        description="Full source block around the match (matched_text + ±15 lines)",
+    )
+
+    # Structural analysis
+    element_tag: str = Field(
+        default="",
+        description="HTML tag of the problematic element: button | input | img | a | div | html",
+    )
+    element_attributes: dict[str, str] = Field(
+        default_factory=dict,
+        description="Parsed attributes of the problematic element",
+    )
+    parent_element: str = Field(
+        default="",
+        description="Immediate parent element description",
+    )
+    sibling_elements: list[str] = Field(
+        default_factory=list,
+        description="Nearby sibling elements (for context)",
+    )
+    nearby_labels: list[str] = Field(
+        default_factory=list,
+        description="Any <label> elements or aria-label values visible near the match",
+    )
+
+    # Framework-specific context
+    component_name: str = Field(
+        default="",
+        description="React/Vue/Angular component name if detectable",
+    )
+    has_event_handlers: bool = False
+    event_handler_names: list[str] = Field(default_factory=list)
+    is_inside_form: bool = False
+    is_icon_only: bool = Field(
+        default=False,
+        description="True if element contains only an icon/svg/img with no text",
+    )
+    is_decorative: bool = Field(
+        default=False,
+        description="True if element appears to be decorative (no interactive role)",
+    )
+
+    # Problem classification
+    problem_type: ProblemType = ProblemType.UNKNOWN
+    problem_summary: str = Field(
+        default="",
+        description="One-sentence description of what is wrong",
+    )
+
+    analyzed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ── Remediation Plan ──────────────────────────────────────────────────────────
+
+
+class RemediationPlan(BaseModel):
+    """
+    A structured, validated plan for fixing a single accessibility finding.
+
+    Produced by RemediationPlanner (AI-assisted but schema-validated).
+    The plan is the bridge between diagnosis and the actual code change.
+
+    NOTHING is written to disk until this plan exists and is validated.
+    """
+
+    plan_id: str = Field(
+        default_factory=lambda: f"PLAN-{uuid.uuid4().hex[:8].upper()}"
+    )
+    finding_id: str
+    attempt_number: int = Field(default=1, ge=1)
+
+    # Classification
+    automation_level: RemediationAutomationLevel
+    classification_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    classified_by: str = Field(
+        default="deterministic_rules",
+        description="'deterministic_rules' | 'llm' | 'hybrid'",
+    )
+
+    # Problem diagnosis
+    problem_type: ProblemType
+    root_cause: str = Field(
+        ...,
+        min_length=10,
+        description="Clear, concise explanation of why this is an accessibility violation",
+    )
+
+    # Fix strategy
+    fix_strategy: str = Field(
+        ...,
+        min_length=10,
+        description="Precise description of what code change will be made",
+    )
+    expected_change_description: str = Field(
+        default="",
+        description="Human-readable one-liner of the change, e.g. 'Add aria-label=\"Register\" to button'",
+    )
+    target_attribute: str = Field(
+        default="",
+        description="The specific attribute to add/remove/modify, e.g. 'aria-label', 'lang', 'alt'",
+    )
+    target_value: str = Field(
+        default="",
+        description="The value to set, if applicable, e.g. 'en', 'Register', ''",
+    )
+
+    # Risk
+    risk_level: str = Field(
+        default="low",
+        pattern=r"^(low|medium|high)$",
+        description="'low' | 'medium' | 'high'",
+    )
+    risk_assessment: str = Field(
+        default="",
+        description="What could go wrong with this fix",
+    )
+
+    # WCAG reference
+    wcag_criterion: str = ""
+    wcag_level: str = ""
+    wcag_title: str = ""
+
+    # Testing requirements
+    requires_tests: list[str] = Field(
+        default_factory=list,
+        description="Test files or patterns that should be run after applying the patch",
+    )
+
+    # Reasoning trail
+    reasoning: str = Field(
+        default="",
+        description="Full chain-of-thought from the planner (LLM or rules engine)",
+    )
+
+    # Flags
+    requires_manual_review: bool = False
+    manual_review_reason: str = ""
+
+    planned_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+

@@ -114,6 +114,79 @@ class Settings(BaseSettings):
     # ── Deduplication ─────────────────────────────────────────────────────────
     dedup_similarity_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
 
+    # ── Remediation Agent ─────────────────────────────────────────────────────
+    # Source search
+    remediation_repo_path: Path | None = Field(
+        default=None,
+        description="Path to the target application source repository",
+    )
+    remediation_allowed_extensions: list[str] = Field(
+        default=[
+            ".html", ".htm", ".tsx", ".jsx", ".ts", ".js",
+            ".vue", ".svelte", ".py", ".erb", ".blade.php",
+            ".css", ".scss", ".sass",
+        ],
+        description="File extensions the source locator is allowed to search and patch",
+    )
+    remediation_allowed_directories: list[str] = Field(
+        default=["src", "components", "templates", "views", "pages", "app", "public", "static"],
+        description="Top-level directories the agent is permitted to modify",
+    )
+    remediation_blocked_paths: list[str] = Field(
+        default=[".env", ".github", "secrets", "credentials", ".git"],
+        description="Paths the agent MUST NEVER modify — security boundary",
+    )
+
+    # Execution policy
+    remediation_policy: str = Field(
+        default="APPLY_IN_BRANCH",
+        description=(
+            "REPORT_ONLY | GENERATE_PATCH | APPLY_IN_BRANCH | "
+            "APPLY_VERIFY | APPLY_VERIFY_COMMIT | APPLY_VERIFY_PR"
+        ),
+    )
+    remediation_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=5,
+        description="Maximum retry attempts before marking as FAILED",
+    )
+    remediation_require_tests: bool = Field(
+        default=False,
+        description="If True, skip remediation when no test suite is found",
+    )
+    remediation_block_on_test_failure: bool = Field(
+        default=True,
+        description="If True, roll back and retry when tests fail after patching",
+    )
+    remediation_auto_rollback_on_regression: bool = Field(
+        default=True,
+        description="Roll back the patch if the after-scan finds new violations",
+    )
+    remediation_disable_ai_on_rescan: bool = Field(
+        default=True,
+        description="Disable LLM enrichment on re-scan to conserve API tokens",
+    )
+
+    # Git
+    remediation_branch_prefix: str = Field(
+        default="a11y-agent",
+        description="Git branch name prefix, e.g. a11y-agent/A11Y-XXXXXXXX",
+    )
+    remediation_target_branch: str = Field(
+        default="main",
+        description="The base branch that fix branches are created from",
+    )
+    remediation_create_pr: bool = Field(
+        default=True,
+        description="Auto-create a GitHub Pull Request when a fix is VERIFIED",
+    )
+    github_token: str | None = Field(
+        default=None,
+        alias="GITHUB_TOKEN",
+        description="GitHub Personal Access Token for PR creation",
+    )
+
     @field_validator("evidence_dir", "report_dir", mode="before")
     @classmethod
     def _expand_path(cls, v: Any) -> Path:
