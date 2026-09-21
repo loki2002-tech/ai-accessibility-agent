@@ -34,6 +34,12 @@ import re
 from typing import Any
 
 from accessibility_agent.wcag.knowledge_base import ARIA_PATTERNS, WCAG_22
+from accessibility_agent.wcag.sc_relationships import (
+    SCRelationship,
+    classify_relationship,
+    should_surface_contradiction,
+    should_warn_contradiction,
+)
 from accessibility_agent.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -270,55 +276,129 @@ class RAGEngine:
         """
         Validate a proposed HTML fix for contradictions with other WCAG criteria.
 
-        Scans the proposed HTML/ARIA code for known anti-patterns that would
-        introduce new accessibility violations while fixing the current one.
+        Uses the SC Relationship Map (sc_relationships.py) to classify whether
+        a triggered anti-pattern is:
+          - ACTUAL_CONFLICT       → returned in the result list (blocking)
+          - POTENTIALLY_INTERACTING → returned with is_blocking=False (warning only)
+          - RELATED / COMPATIBLE / UNRELATED → silently ignored (not false positives)
 
         Args:
-            proposed_html: The AI-generated HTML fix to validate
+            proposed_html:  The AI-generated HTML fix to validate
             sc_being_fixed: The SC number being addressed (e.g. '1.1.1')
 
         Returns:
-            List of contradiction dicts: [{violates, message}, ...]
-            Empty list means the fix has no detected contradictions.
+            List of contradiction dicts. Each dict has:
+                - violates_sc:     SC number of the potential violation
+                - violates_title:  Human-readable criterion title
+                - violates_url:    W3C specification URL
+                - message:         Explanation of the problem
+                - matched_pattern: The matched text snippet
+                - relationship:    SCRelationship value ('actual_conflict' | 'potentially_interacting' | ...)
+                - is_blocking:     True only for ACTUAL_CONFLICT
+
+            Empty list means NO detected contradictions of ANY kind.
         """
         if not proposed_html:
             return []
 
-        contradictions = []
+        contradictions: list[dict[str, str]] = []
+        warnings: list[dict[str, str]] = []
         html_lower = proposed_html.lower()
 
-        for cp in _CONTRADICTION_PATTERNS:
-            if cp["violates"] == sc_being_fixed:
-                continue  # Skip the criterion being fixed — it's intentional
+        for idx, cp in enumerate(_CONTRADICTION_PATTERNS):
+            sc_of_pattern = cp["violates"]
 
+            # ── Classify the relationship ──────────────────────────────────────
+            relationship = classify_relationship(
+                sc_being_fixed=sc_being_fixed,
+                sc_of_pattern=sc_of_pattern,
+                pattern_index=idx,
+            )
+
+            # COMPATIBLE / RELATED / UNRELATED → skip entirely (not contradictions)
+            if relationship in (
+                SCRelationship.COMPATIBLE,
+                SCRelationship.RELATED,
+                SCRelationship.UNRELATED,
+            ):
+                log.debug(
+                    "rag_engine.contradiction_skipped",
+                    sc_fixing=sc_being_fixed,
+                    sc_pattern=sc_of_pattern,
+                    relationship=relationship.value,
+                )
+                continue
+
+            # ── Check if the pattern actually appears in the HTML ──────────────
             pattern_match = re.search(cp["pattern"], html_lower, re.IGNORECASE)
             if not pattern_match:
                 continue
 
-            # If there's an element context requirement, check it too
+            # ── Check element context if required ─────────────────────────────
             if cp.get("on_selector"):
                 context_match = re.search(cp["on_selector"], html_lower, re.IGNORECASE)
                 if not context_match:
                     continue
 
-            sc_data = self._kb.get(cp["violates"], {})
-            contradictions.append({
-                "violates_sc": cp["violates"],
+            # ── Build the contradiction record ─────────────────────────────────
+            sc_data = self._kb.get(sc_of_pattern, {})
+            record = {
+                "violates_sc": sc_of_pattern,
                 "violates_title": sc_data.get("title", "Unknown"),
                 "violates_url": sc_data.get("url", ""),
                 "message": cp["message"],
                 "matched_pattern": pattern_match.group(0)[:80],
-            })
+                "relationship": relationship.value,
+                "is_blocking": str(should_surface_contradiction(relationship)).lower(),
+            }
 
-        if contradictions:
-            log.warning(
-                "rag_engine.contradictions_detected",
-                count=len(contradictions),
+            if should_surface_contradiction(relationship):
+                # ACTUAL_CONFLICT → goes into blocking contradictions
+                contradictions.append(record)
+                log.warning(
+                    "rag_engine.actual_conflict_detected",
+                    fixing_sc=sc_being_fixed,
+                    violates_sc=sc_of_pattern,
+                    relationship=relationship.value,
+                )
+            elif should_warn_contradiction(relationship):
+                # POTENTIALLY_INTERACTING / UNKNOWN → non-blocking warning
+                warnings.append(record)
+                log.info(
+                    "rag_engine.contradiction_warning",
+                    fixing_sc=sc_being_fixed,
+                    violates_sc=sc_of_pattern,
+                    relationship=relationship.value,
+                )
+
+        # Return ONLY actual conflicts as the main result.
+        # Warnings are included but marked is_blocking=False so callers can
+        # present them separately (e.g. in the remediation report but not
+        # as patch blockers).
+        all_findings = contradictions + warnings
+
+        if all_findings:
+            log.info(
+                "rag_engine.contradiction_summary",
                 fixing_sc=sc_being_fixed,
-                violates=[c["violates_sc"] for c in contradictions],
+                blocking=len(contradictions),
+                warnings=len(warnings),
+                total=len(all_findings),
             )
 
-        return contradictions
+        return all_findings
+
+    def get_actual_conflicts(
+        self, proposed_html: str, sc_being_fixed: str
+    ) -> list[dict[str, str]]:
+        """
+        Convenience method: return only the BLOCKING contradictions.
+
+        The PatchValidator Gate 8 uses this to decide whether to reject a patch.
+        Non-blocking warnings are excluded from the gate decision.
+        """
+        all_findings = self.check_fix_for_contradictions(proposed_html, sc_being_fixed)
+        return [f for f in all_findings if f.get("is_blocking") == "true"]
 
     def format_citation(self, sc: str) -> str:
         """Return a short citation string for embedding in reports."""

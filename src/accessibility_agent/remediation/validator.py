@@ -423,6 +423,10 @@ class PatchValidator:
     ) -> bool:
         """
         Gate 8: Run the RAG contradiction checker on patched HTML.
+
+        Uses RAGEngine.get_actual_conflicts() which filters by SCRelationship —
+        only ACTUAL_CONFLICT blocks the patch.
+        POTENTIALLY_INTERACTING / UNKNOWN are recorded but do not fail this gate.
         Skipped for non-HTML files.
         """
         if language not in ("html", "htm", "vue"):
@@ -435,16 +439,25 @@ class PatchValidator:
             from accessibility_agent.wcag.rag_engine import RAGEngine
             rag = RAGEngine()
             wcag_sc = plan.wcag_criterion or ""
-            contradictions = rag.check_fix_for_contradictions(patched_content, wcag_sc)
 
-            if contradictions:
-                result.contradiction_details = contradictions
-                violations = [c.get("violates_sc", "") for c in contradictions]
+            # Only blocking ACTUAL_CONFLICTs fail Gate 8
+            blocking = rag.get_actual_conflicts(patched_content, wcag_sc)
+
+            if blocking:
+                result.contradiction_details = blocking
+                violations = [c.get("violates_sc", "") for c in blocking]
                 result.failure_reasons.append(
-                    f"Gate 8 FAIL: Patch introduces contradictions with WCAG SC(s): "
+                    f"Gate 8 FAIL: Patch introduces ACTUAL WCAG contradictions with SC(s): "
                     + ", ".join(violations)
+                    + ". These are blocking violations, not warnings."
                 )
                 return False
+
+            # Also run full check to capture non-blocking warnings for the report
+            all_findings = rag.check_fix_for_contradictions(patched_content, wcag_sc)
+            warnings = [f for f in all_findings if f.get("is_blocking") != "true"]
+            if warnings:
+                result.contradiction_details.extend(warnings)
 
         except Exception as exc:
             log.debug("validator.gate8_error", error=str(exc))
@@ -452,6 +465,7 @@ class PatchValidator:
             return True
 
         return True
+
 
     # ── Syntax validators ─────────────────────────────────────────────────────
 
