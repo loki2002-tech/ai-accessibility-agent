@@ -26,6 +26,8 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from accessibility_agent.logging_config import configure_logging, get_logger
+from accessibility_agent.remediation.agent import RemediationAgent
+from accessibility_agent.wcag.schemas import Finding
 
 app = typer.Typer(
     name="a11y-agent",
@@ -225,6 +227,212 @@ def cmd_serve(
         err_console.print(f"[red]Error starting server: {e}[/red]")
         err_console.print("Ensure you have installed fastapi and uvicorn: pip install fastapi uvicorn")
         raise typer.Exit(1)
+
+
+
+@app.command("remediate")
+def cmd_remediate(
+    finding_file: Annotated[
+        Optional[Path],
+        typer.Option("--finding", "-f", help="Path to a JSON file containing the accessibility finding"),
+    ] = None,
+    finding_json: Annotated[
+        Optional[str],
+        typer.Option("--json", "-j", help="Raw JSON string of the finding (alternative to --finding)"),
+    ] = None,
+    repo: Annotated[
+        Path,
+        typer.Option("--repo", "-r", help="Path to the target application's source repository"),
+    ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Plan and validate the fix without applying it to git"),
+    ] = False,
+    no_tests: Annotated[
+        bool,
+        typer.Option("--no-tests", help="Skip running the test suite after patching"),
+    ] = False,
+    no_pr: Annotated[
+        bool,
+        typer.Option("--no-pr", help="Skip opening a GitHub Pull Request"),
+    ] = False,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Write the full result JSON to this file"),
+    ] = None,
+) -> None:
+    """
+    Autonomously remediate a single accessibility finding.
+
+    Accepts a finding (from a previous scan) and runs the full pipeline:
+    locate -> classify -> plan -> patch -> validate -> git branch -> tests -> PR.
+
+    Examples:
+
+    \b
+    # Remediate from a saved finding file
+    a11y-agent remediate --finding ./reports/finding_A11Y-XXXX.json --repo ./my-app
+
+    \b
+    # Dry-run: plan and validate without touching git
+    a11y-agent remediate --finding ./finding.json --repo . --dry-run
+
+    \b
+    # Pipe JSON inline (useful in CI scripts)
+    a11y-agent remediate --json '{"finding_id": "A11Y-001", ...}' --repo .
+    """
+    import json
+
+    log = get_logger("cli.remediate")
+
+    # ── Load finding ──────────────────────────────────────────────────────────
+    if finding_file is None and finding_json is None:
+        err_console.print("[red]Error: provide either --finding <file> or --json <string>[/red]")
+        raise typer.Exit(1)
+
+    try:
+        if finding_file is not None:
+            raw = finding_file.read_text(encoding="utf-8")
+        else:
+            raw = finding_json  # type: ignore[assignment]
+        finding_data = json.loads(raw)
+        finding = Finding.model_validate(finding_data)
+    except Exception as exc:
+        err_console.print(f"[red]Failed to parse finding: {exc}[/red]")
+        raise typer.Exit(1)
+
+    repo_path = repo.resolve()
+    if not repo_path.exists():
+        err_console.print(f"[red]Repository path does not exist: {repo_path}[/red]")
+        raise typer.Exit(1)
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    console.print(f"\n[bold blue]♿ AI Accessibility Remediation Agent[/bold blue]")
+    console.print(f"   Finding ID : [bold]{finding.finding_id}[/bold]")
+    console.print(f"   Rule       : {finding.rule_id}")
+    console.print(f"   WCAG SC    : {finding.wcag.success_criterion}")
+    console.print(f"   URL        : [link={finding.url}]{finding.url}[/link]")
+    console.print(f"   Repo       : {repo_path}")
+    console.print(f"   Mode       : {'dry-run' if dry_run else 'live'}\n")
+
+    # ── Run agent ─────────────────────────────────────────────────────────────
+    agent = RemediationAgent(
+        repo_path=repo_path,
+        dry_run=dry_run,
+        block_on_test_failure=not no_tests,
+        create_pr=not no_pr,
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(f"Remediating {finding.finding_id}…", total=None)
+        try:
+            result = agent.remediate(finding)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Remediation interrupted by user.[/yellow]")
+            raise typer.Exit(130)
+        except Exception as exc:
+            err_console.print(f"\n[red]Remediation failed unexpectedly: {exc}[/red]")
+            log.exception("cli.remediate_failed", error=str(exc))
+            raise typer.Exit(1)
+
+    # ── Print result ──────────────────────────────────────────────────────────
+    _print_remediation_result(result, dry_run=dry_run)
+
+    # ── Save result JSON ──────────────────────────────────────────────────────
+    if output is not None:
+        try:
+            from dataclasses import asdict, fields
+            import dataclasses
+
+            def _serialize(obj):
+                if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+                    return {f.name: _serialize(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+                if hasattr(obj, "model_dump"):
+                    return obj.model_dump()
+                if hasattr(obj, "value"):
+                    return obj.value
+                if isinstance(obj, list):
+                    return [_serialize(i) for i in obj]
+                return obj
+
+            output.write_text(json.dumps(_serialize(result), indent=2, default=str), encoding="utf-8")
+            console.print(f"\n[dim]Result saved to: {output}[/dim]")
+        except Exception as exc:
+            err_console.print(f"[yellow]Warning: could not save result JSON: {exc}[/yellow]")
+
+    # ── Exit code ─────────────────────────────────────────────────────────────
+    if not result.succeeded and result.status.value not in ("manual_review",):
+        raise typer.Exit(1)
+
+
+def _print_remediation_result(result: "RemediationAgentResult", dry_run: bool = False) -> None:  # type: ignore[name-defined]
+    """Print a rich result panel after remediation."""
+    from accessibility_agent.remediation.schemas import RemediationStatus
+
+    status_color = {
+        RemediationStatus.VERIFIED: "bold green",
+        RemediationStatus.FAILED: "bold red",
+        RemediationStatus.ROLLED_BACK: "bold yellow",
+        RemediationStatus.MANUAL_REVIEW: "bold cyan",
+        RemediationStatus.REJECTED: "red",
+        RemediationStatus.IN_PROGRESS: "yellow",
+    }.get(result.status, "white")
+
+    status_icon = {
+        RemediationStatus.VERIFIED: "✅",
+        RemediationStatus.FAILED: "❌",
+        RemediationStatus.ROLLED_BACK: "↩️",
+        RemediationStatus.MANUAL_REVIEW: "🔍",
+    }.get(result.status, "⏳")
+
+    console.print(f"\n[bold]🔧 Remediation Result[/bold]\n")
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Field", style="bold dim", width=22)
+    table.add_column("Value")
+
+    table.add_row("Status", f"[{status_color}]{status_icon} {result.status.value.upper()}[/{status_color}]")
+    table.add_row("Finding ID", result.finding_id)
+    table.add_row("Attempts", str(result.attempts))
+    table.add_row("Duration", f"{result.duration_seconds:.2f}s")
+
+    if result.source_location:
+        table.add_row("Source File", str(result.source_location.file_path))
+        table.add_row("Source Line", str(result.source_location.start_line))
+
+    if result.patches:
+        p = result.patches[-1]
+        table.add_row("Patch", f"+{p.lines_added} / -{p.lines_removed} lines in {p.target_file}")
+
+    if not dry_run:
+        table.add_row("Tests Ran", "Yes" if result.tests_ran else "No (not detected)")
+        table.add_row("Tests Passed", "[green]Yes[/green]" if result.tests_passed else "[red]No[/red]")
+
+    if result.verification_status:
+        table.add_row("Verification", result.verification_status.value)
+
+    if result.regressions_introduced:
+        table.add_row("Regressions", f"[red]{result.regressions_introduced} new issue(s)[/red]")
+
+    if result.pr_url:
+        table.add_row("Pull Request", f"[link={result.pr_url}]{result.pr_url}[/link]")
+
+    if result.failure_reason:
+        table.add_row("Failure Reason", f"[red]{result.failure_reason}[/red]")
+
+    if result.manual_review_notes:
+        table.add_row("Manual Review", result.manual_review_notes[:100])
+
+    console.print(table)
+    console.print(
+        "\n[dim]⚠️  Auto-generated fixes require human review before merging.[/dim]\n"
+    )
+
 
 if __name__ == "__main__":
     app()
