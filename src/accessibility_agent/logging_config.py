@@ -43,7 +43,11 @@ def configure_logging() -> None:
     if settings.log_json:
         renderer: Any = structlog.processors.JSONRenderer()
     else:
-        renderer = structlog.dev.ConsoleRenderer(colors=True)
+        # Only enable colors when we have a real terminal (TTY).
+        # When running as a subprocess (uvicorn worker, CI/CD, tests),
+        # there is no TTY and colorama crashes writing to a non-console stream.
+        _use_colors = hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
+        renderer = structlog.dev.ConsoleRenderer(colors=_use_colors)
 
     structlog.configure(
         processors=[

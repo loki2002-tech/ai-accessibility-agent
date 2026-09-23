@@ -1,3 +1,6 @@
+import asyncio
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -5,6 +8,14 @@ from fastapi.staticfiles import StaticFiles
 
 from accessibility_agent.api.routes import router
 from accessibility_agent.config import settings
+
+# ── Windows Event Loop Fix ────────────────────────────────────────────────────
+# Python 3.8+ on Windows defaults to WindowsSelectorEventLoop inside uvicorn
+# worker subprocesses (when --reload is used). Playwright requires
+# WindowsProactorEventLoop to spawn browser subprocesses.
+# This must be set at module import time, before any event loop is created.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""

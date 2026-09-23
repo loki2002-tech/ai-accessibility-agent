@@ -283,7 +283,7 @@ def cmd_serve(
     # Start on custom host/port
     a11y-agent serve --host 0.0.0.0 --port 8080
     """
-    console.print(f"\n[bold blue]🚀 Starting API Server on http://{host}:{port}[/bold blue]\n")
+    print(f"\nStarting API Server on http://{host}:{port}\n", flush=True)
     try:
         from accessibility_agent.api.server import run_server
         run_server(host=host, port=port, reload=reload)
