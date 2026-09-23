@@ -1,4 +1,4 @@
- # ♿ Complete End-to-End System Guide: Autonomous Accessibility Testing & Remediation Agent
+# ♿ Complete End-to-End System Guide: Autonomous Accessibility Testing & Remediation Agent
 
 > **Author / Lead Engineer:** Lokirami Reddy  
 > **Repository:** [https://github.com/loki2002-tech/ai-accessibility-agent](https://github.com/loki2002-tech/ai-accessibility-agent)  

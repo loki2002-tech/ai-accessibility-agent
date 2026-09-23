@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 import structlog
@@ -37,6 +38,11 @@ class JobManager:
         browser_name: str = "chromium",
         headless: bool = True,
         viewport_str: str = "1280x720",
+        # ── Authentication ────────────────────────────────────────────────
+        auth_state_path: Optional[str] = None,
+        login_url: Optional[str] = None,
+        login_username: Optional[str] = None,
+        login_password: Optional[str] = None,
     ) -> str:
         """Start a scan job in the background and return a unique run_id."""
         
@@ -52,7 +58,8 @@ class JobManager:
         
         # Fire and forget
         asyncio.create_task(self._process_job(
-            run_id, url, mode, agentic, browser_name, headless, viewport_str
+            run_id, url, mode, agentic, browser_name, headless, viewport_str,
+            auth_state_path, login_url, login_username, login_password,
         ))
         
         return run_id
@@ -66,6 +73,10 @@ class JobManager:
         browser_name: str,
         headless: bool,
         viewport_str: str,
+        auth_state_path: Optional[str] = None,
+        login_url: Optional[str] = None,
+        login_username: Optional[str] = None,
+        login_password: Optional[str] = None,
     ) -> None:
         """Execute the scan orchestrated by ScanOrchestrator."""
         job = self._jobs[run_id]
@@ -77,7 +88,6 @@ class JobManager:
         
         try:
             width, height = map(int, viewport_str.split("x"))
-            viewport = {"width": width, "height": height}
             
             orchestrator = ScanOrchestrator(
                 url=url,
@@ -87,6 +97,10 @@ class JobManager:
                 headless=headless,
                 viewport=(width, height),
                 run_id=run_id,
+                auth_state_path=Path(auth_state_path) if auth_state_path else None,
+                login_url=login_url,
+                login_username=login_username,
+                login_password=login_password,
             )
             
             result = await orchestrator.run()

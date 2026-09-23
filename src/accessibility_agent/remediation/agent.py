@@ -350,7 +350,7 @@ class RemediationAgent:
         self, finding_data: dict, source_location: SourceLocation
     ) -> RemediationAutomationLevel:
         try:
-            source_context = self._analyzer.analyze(finding_data, source_location)
+            source_context = self._analyzer.analyze(source_location, finding_data)
             automation_level, _, confidence, _ = self._classifier.classify(
                 finding_data, source_context
             )
@@ -359,10 +359,16 @@ class RemediationAgent:
                 level=automation_level.value,
                 confidence=confidence,
             )
-            return automation_level
         except Exception as exc:
             log.error("agent.classify_error", error=str(exc))
-            return RemediationAutomationLevel.NEEDS_HUMAN_REVIEW
+            return RemediationAutomationLevel.MANUAL_REVIEW_REQUIRED
+
+        # If we got here, it requires AI planning
+        if self._dry_run:
+            log.warning("remediate.ai_planning_skipped_dry_run")
+            return RemediationAutomationLevel.MANUAL_REVIEW_REQUIRED
+
+        return automation_level
 
     def _plan(
         self,
@@ -371,7 +377,7 @@ class RemediationAgent:
         attempt: int,
     ) -> RemediationPlan | None:
         try:
-            source_context = self._analyzer.analyze(finding_data, source_location)
+            source_context = self._analyzer.analyze(source_location, finding_data)
             plan = self._planner.plan(finding_data, source_context, attempt=attempt)
             log.info("agent.planned", strategy=plan.fix_strategy[:60])
             return plan

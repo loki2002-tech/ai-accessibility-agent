@@ -136,7 +136,189 @@ class BrowserController:
     async def __aexit__(self, *args: Any) -> None:
         await self.stop()
 
-    # ── Navigation ────────────────────────────────────────────────────────
+    # ── Authentication ────────────────────────────────────────────────────
+
+    async def load_auth_state(self, state_path: Path) -> None:
+        """
+        Restore a previously saved Playwright browser storage state.
+
+        This injects cookies, localStorage, and sessionStorage from a JSON
+        file created by Playwright's ``context.storage_state()`` method.
+
+        Use this for OAuth/SSO-protected apps where programmatic login is
+        not feasible.  Generate the state file once with::
+
+            playwright codegen --save-storage=auth.json https://your-app.com
+
+        Then pass ``--auth-state auth.json`` to the CLI.
+
+        Args:
+            state_path: Path to the Playwright storage state JSON file.
+
+        Raises:
+            FileNotFoundError: If the state file does not exist.
+            RuntimeError: If the browser context is not yet started.
+        """
+        if not self._context:
+            raise RuntimeError("BrowserController.start() must be called before load_auth_state().")
+
+        if not state_path.exists():
+            raise FileNotFoundError(
+                f"Auth state file not found: {state_path}\n"
+                "Generate it with: playwright codegen --save-storage=auth.json <url>"
+            )
+
+        import json as _json
+        state_data = _json.loads(state_path.read_text(encoding="utf-8"))
+
+        # Inject cookies
+        cookies = state_data.get("cookies", [])
+        if cookies:
+            await self._context.add_cookies(cookies)
+            log.info("browser.auth.cookies_loaded", count=len(cookies))
+
+        # Inject localStorage / sessionStorage via JS evaluation on a blank page
+        origins = state_data.get("origins", [])
+        if origins and self._page:
+            for origin in origins:
+                origin_url = origin.get("origin", "")
+                local_storage = origin.get("localStorage", [])
+                if local_storage and origin_url:
+                    try:
+                        await self._page.goto(origin_url, wait_until="domcontentloaded", timeout=10_000)
+                        for item in local_storage:
+                            await self._page.evaluate(
+                                "([k, v]) => localStorage.setItem(k, v)",
+                                [item["name"], item["value"]],
+                            )
+                        log.info(
+                            "browser.auth.localstorage_loaded",
+                            origin=origin_url,
+                            items=len(local_storage),
+                        )
+                    except Exception as exc:
+                        log.warning(
+                            "browser.auth.localstorage_failed",
+                            origin=origin_url,
+                            error=str(exc),
+                        )
+
+        log.info("browser.auth.state_loaded", path=str(state_path))
+
+    async def perform_login(
+        self,
+        login_url: str,
+        username: str,
+        password: str,
+        username_selector: str = "input[type='email'], input[type='text'], input[name='username'], input[name='email']",
+        password_selector: str = "input[type='password']",
+        submit_selector: str = "button[type='submit'], input[type='submit']",
+        success_url_contains: str | None = None,
+    ) -> bool:
+        """
+        Automatically fill and submit a login form.
+
+        This navigates to *login_url*, fills the username and password fields
+        using :meth:`type_text`, submits the form, and waits for a redirect
+        that indicates successful authentication.
+
+        Args:
+            login_url: The URL of the login page.
+            username: The login username or email address.
+            password: The login password.  **Never logged or included in evidence.**
+            username_selector: CSS selector(s) for the username field (comma-separated fallbacks).
+            password_selector: CSS selector for the password field.
+            submit_selector: CSS selector for the submit button (comma-separated fallbacks).
+            success_url_contains: Optional substring that the post-login URL must contain.
+                                   If None, any URL change from the login page is accepted.
+
+        Returns:
+            True if login appeared successful, False otherwise.
+        """
+        if not self._page:
+            raise RuntimeError("BrowserController.start() must be called before perform_login().")
+
+        log.info("browser.auth.login_start", login_url=login_url)
+
+        try:
+            await self._page.goto(login_url, wait_until="domcontentloaded", timeout=settings.navigation_timeout)
+
+            # Resolve the username field — try each comma-separated selector
+            username_field = None
+            for sel in [s.strip() for s in username_selector.split(",")]:
+                try:
+                    await self._page.wait_for_selector(sel, timeout=3000)
+                    username_field = sel
+                    break
+                except Exception:
+                    continue
+
+            if not username_field:
+                log.error("browser.auth.username_field_not_found", tried=username_selector)
+                return False
+
+            # Fill credentials — password is never logged
+            await self._page.fill(username_field, username)
+            await self._page.fill(password_selector, password)
+            log.debug("browser.auth.credentials_filled")
+
+            # Click the submit button
+            submit_field = None
+            for sel in [s.strip() for s in submit_selector.split(",")]:
+                try:
+                    await self._page.wait_for_selector(sel, timeout=2000)
+                    submit_field = sel
+                    break
+                except Exception:
+                    continue
+
+            if not submit_field:
+                # Try pressing Enter as fallback
+                await self._page.keyboard.press("Enter")
+            else:
+                await self._page.click(submit_field)
+
+            # Wait for navigation after submit
+            try:
+                await self._page.wait_for_load_state("networkidle", timeout=10_000)
+            except Exception:
+                await asyncio.sleep(2)
+
+            final_url = self._page.url
+            login_succeeded = final_url != login_url
+
+            if success_url_contains:
+                login_succeeded = success_url_contains in final_url
+
+            if login_succeeded:
+                log.info("browser.auth.login_success", final_url=final_url)
+            else:
+                log.warning("browser.auth.login_failed", final_url=final_url)
+
+            return login_succeeded
+
+        except Exception as exc:
+            log.error("browser.auth.login_error", error=str(exc))
+            return False
+
+    async def save_auth_state(self, output_path: Path) -> None:
+        """
+        Save the current browser storage state (cookies + localStorage) to a JSON file.
+
+        This allows you to reuse the authenticated session on subsequent scans
+        without logging in again.
+
+        Args:
+            output_path: Where to save the storage state JSON.
+        """
+        if not self._context:
+            raise RuntimeError("BrowserController.start() must be called before save_auth_state().")
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        await self._context.storage_state(path=str(output_path))
+        log.info("browser.auth.state_saved", path=str(output_path))
+
+
 
     async def navigate(self, url: str) -> dict[str, Any]:
         """

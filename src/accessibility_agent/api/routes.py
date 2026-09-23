@@ -19,6 +19,24 @@ class ScanRequest(BaseModel):
     browser: str = Field("chromium", description="The browser engine to use. Supported: 'chromium' (Chrome/Edge), 'firefox', or 'webkit' (Safari).")
     headless: bool = Field(True, description="Set to true to run the browser invisibly in the background. Set to false if you want to watch the browser pop up and run.")
     viewport: str = Field("1280x720", description="The screen size to simulate. Format: WIDTHxHEIGHT (e.g., '1920x1080' for desktop, '375x812' for mobile).")
+    # ── Authentication (optional) ─────────────────────────────────────────────
+    auth_state_path: Optional[str] = Field(
+        None,
+        description="Server-side path to a Playwright storage state JSON file. Use for OAuth/SSO-protected apps.",
+    )
+    login_url: Optional[str] = Field(
+        None,
+        description="URL of the login page for auto-fill authentication.",
+    )
+    login_username: Optional[str] = Field(
+        None,
+        description="Username or email for auto-login.",
+    )
+    login_password: Optional[str] = Field(
+        None,
+        description="Password for auto-login. Consider using server env vars instead of sending in API body.",
+    )
+
 
 class ScanResponse(BaseModel):
     run_id: str

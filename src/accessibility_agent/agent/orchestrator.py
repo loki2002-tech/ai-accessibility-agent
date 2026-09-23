@@ -59,6 +59,13 @@ class ScanOrchestrator:
         report_formats: list[str] | None = None,
         agentic: bool = False,
         run_id: str | None = None,
+        # ── Authentication ────────────────────────────────────────────────
+        auth_state_path: Path | None = None,
+        login_url: str | None = None,
+        login_username: str | None = None,
+        login_password: str | None = None,
+        login_success_url_contains: str | None = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.url = url
         self.mode = mode
@@ -66,6 +73,14 @@ class ScanOrchestrator:
         self._output_dir = output_dir or settings.report_dir
         self._report_formats = report_formats or settings.report_formats
         self._run_id = run_id
+
+        # Auth
+        self._auth_state_path = auth_state_path
+        self._login_url = login_url
+        self._login_username = login_username
+        self._login_password = login_password
+        self._login_success_url_contains = login_success_url_contains
+        self._progress_callback = progress_callback
 
         # Browser configuration overrides
         from accessibility_agent.config import BrowserType
@@ -104,6 +119,54 @@ class ScanOrchestrator:
             evidence_collector = EvidenceCollector(browser, result.run_id)
             axe_engine = AxeEngine(browser)
             dedup = DeduplicationEngine(settings.dedup_similarity_threshold)
+
+            # ── Step 0: Authentication (optional) ─────────────────────────
+            if self._auth_state_path is not None:
+                log.info("orchestrator.auth.loading_state", path=str(self._auth_state_path))
+                try:
+                    await browser.load_auth_state(self._auth_state_path)
+                    self._trace(result, 0, "load_auth_state", {
+                        "path": str(self._auth_state_path)
+                    }, {"status": "loaded"})
+                except Exception as exc:
+                    error_msg = f"Auth state load failed: {exc}"
+                    log.error("orchestrator.auth.state_load_failed", error=error_msg)
+                    result.errors.append(error_msg)
+                    result.finalize()
+                    return result
+
+            elif self._login_url is not None:
+                if not self._login_username or not self._login_password:
+                    error_msg = (
+                        "login_url provided but login_username / login_password are missing. "
+                        "Pass --login-username and --login-password (or set A11Y_LOGIN_PASSWORD env var)."
+                    )
+                    log.error("orchestrator.auth.missing_credentials")
+                    result.errors.append(error_msg)
+                    result.finalize()
+                    return result
+
+                log.info("orchestrator.auth.performing_login", login_url=self._login_url)
+                login_ok = await browser.perform_login(
+                    login_url=self._login_url,
+                    username=self._login_username,
+                    password=self._login_password,
+                    success_url_contains=self._login_success_url_contains,
+                )
+                self._trace(result, 0, "perform_login", {
+                    "login_url": self._login_url,
+                    "username": self._login_username,
+                }, {"success": login_ok})
+
+                if not login_ok:
+                    error_msg = (
+                        f"Automated login to {self._login_url} failed. "
+                        "Scan aborted to prevent scanning the login page instead of the target."
+                    )
+                    log.error("orchestrator.auth.login_failed", login_url=self._login_url)
+                    result.errors.append(error_msg)
+                    result.finalize()
+                    return result
 
             # ── Step 1: Navigate ───────────────────────────────────────────
             step += 1

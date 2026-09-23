@@ -79,20 +79,60 @@ def cmd_scan(
         bool,
         typer.Option("--agentic", help="Enable Agentic Observe/Plan/Act loop for dynamic DOM interaction"),
     ] = False,
+    # ── Authentication flags ──────────────────────────────────────────────
+    auth_state: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--auth-state",
+            help="Path to a Playwright storage state JSON file (cookies + localStorage). "
+                 "Generate with: playwright codegen --save-storage=auth.json <url>",
+        ),
+    ] = None,
+    login_url: Annotated[
+        Optional[str],
+        typer.Option(
+            "--login-url",
+            help="URL of the login page. Agent will auto-fill credentials before scanning.",
+        ),
+    ] = None,
+    login_username: Annotated[
+        Optional[str],
+        typer.Option("--login-username", help="Username or email for auto-login."),
+    ] = None,
+    login_password: Annotated[
+        Optional[str],
+        typer.Option(
+            "--login-password",
+            help="Password for auto-login. Prefer setting A11Y_LOGIN_PASSWORD env var in CI.",
+            envvar="A11Y_LOGIN_PASSWORD",
+        ),
+    ] = None,
 ) -> None:
     """
     Run an accessibility scan against a URL.
 
     Examples:
 
-    \b
+    \\b
     # Basic automated scan
     a11y-agent scan --url https://example.com
 
-    \b
+    \\b
     # Full audit in Firefox, non-headless
     a11y-agent scan --url https://example.com --mode full --browser firefox --no-headless
+
+    \\b
+    # Scan a protected page using a saved Playwright auth state
+    a11y-agent scan --url https://app.example.com/dashboard --auth-state ./auth.json
+
+    \\b
+    # Scan a protected page using auto-login credentials
+    a11y-agent scan --url https://app.example.com/dashboard \\
+        --login-url https://app.example.com/login \\
+        --login-username admin@example.com \\
+        --login-password secret123
     """
+    import os
     log = get_logger("cli")
 
     # Parse viewport
@@ -100,6 +140,21 @@ def cmd_scan(
         w, h = map(int, viewport.lower().split("x"))
     except ValueError:
         err_console.print(f"[red]Invalid viewport format: {viewport}. Use WIDTHxHEIGHT (e.g. 1280x720)[/red]")
+        raise typer.Exit(1)
+
+    # Validate auth inputs
+    if auth_state is not None and not auth_state.exists():
+        err_console.print(f"[red]Auth state file not found: {auth_state}[/red]")
+        raise typer.Exit(1)
+
+    if login_url and not login_username:
+        err_console.print("[red]--login-url requires --login-username[/red]")
+        raise typer.Exit(1)
+
+    if login_url and not login_password:
+        err_console.print(
+            "[red]--login-url requires --login-password (or set A11Y_LOGIN_PASSWORD env var)[/red]"
+        )
         raise typer.Exit(1)
 
     report_formats = [f.strip() for f in formats.split(",")]
@@ -114,7 +169,12 @@ def cmd_scan(
     console.print(f"   Mode: {mode}")
     console.print(f"   Agentic: {agentic}")
     console.print(f"   Browser: {browser} ({'headless' if headless else 'headed'})")
-    console.print(f"   Viewport: {viewport}\n")
+    console.print(f"   Viewport: {viewport}")
+    if auth_state:
+        console.print(f"   Auth: state file ({auth_state.name})")
+    elif login_url:
+        console.print(f"   Auth: auto-login at {login_url}")
+    console.print()
 
     # Run the scan
     from accessibility_agent.agent.orchestrator import ScanOrchestrator
@@ -128,6 +188,10 @@ def cmd_scan(
         viewport=(w, h),
         report_formats=report_formats,
         agentic=agentic,
+        auth_state_path=auth_state,
+        login_url=login_url,
+        login_username=login_username,
+        login_password=login_password,
     )
 
     with Progress(
