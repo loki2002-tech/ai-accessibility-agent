@@ -326,21 +326,55 @@ class SourceLocator:
         )
 
         if not candidates:
-            # Fallback to evidence file_path if available
+            # Fallback to evidence file_path or url if available
             fallback_path = None
             for ev in finding_data.get("evidence", []):
-                if ev.get("file_path"):
-                    fallback_path = ev["file_path"]
+                fp = ev.get("file_path", "")
+                if fp and not fp.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    fallback_path = fp
                     break
+                
+                # If file_path is empty (e.g. live URL scan), try to extract from URL
+                url = ev.get("url", "")
+                if url.startswith("http") and "localhost" in url:
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(url)
+                    url_path = parsed.path.lstrip("/")
+                    if url_path and not url_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        fallback_path = url_path
+                        break
             
             if fallback_path:
-                candidates.append(_RawMatch(
-                    file_path=self._repo / fallback_path,
-                    line_number=1,
-                    line_content="",
-                    strategy="evidence_fallback",
-                    score=0.5
-                ))
+                if (self._repo / fallback_path).exists():
+                    fallback_file = self._repo / fallback_path
+                    line_num = 1
+                    try:
+                        from bs4 import BeautifulSoup
+                        html_content = fallback_file.read_text(encoding='utf-8')
+                        soup = BeautifulSoup(html_content, 'html.parser')
+                        if selector:
+                            el = soup.select_one(selector)
+                            if el and getattr(el, 'sourceline', None):
+                                line_num = el.sourceline
+                    except Exception:
+                        pass
+
+                    candidates.append(_RawMatch(
+                        file_path=fallback_file,
+                        line_number=line_num,
+                        line_content="",
+                        strategy="evidence_fallback",
+                        score=0.5
+                    ))
+                else:
+                    # Still try it, might be relative
+                    candidates.append(_RawMatch(
+                        file_path=self._repo / fallback_path,
+                        line_number=1,
+                        line_content="",
+                        strategy="evidence_fallback",
+                        score=0.5
+                    ))
             else:
                 log.warning("source_locator.not_found", finding_id=finding_id)
                 return self._not_found_result()
@@ -358,8 +392,8 @@ class SourceLocator:
 
         location = SourceLocation(
             file_path=str(best.file_path.relative_to(self._repo)),
-            start_line=max(1, best.line_number - 2),
-            end_line=best.line_number + 2,
+            start_line=best.line_number,
+            end_line=best.line_number,
             language=best.file_path.suffix.lstrip("."),
             confidence=confidence,
             framework=self._framework,
@@ -612,9 +646,9 @@ class SourceLocator:
         if not html_snippet or len(html_snippet) < 10:
             return results
 
-        # Extract distinctive attribute values (data-*, name=, type= etc.)
+        # Extract full distinctive attributes (e.g. type="email", name="username")
         attr_patterns = re.findall(
-            r'(?:data-[a-z-]+|name|type|placeholder|for)\s*=\s*["\']([^"\']{3,30})["\']',
+            r'((?:data-[a-z-]+|name|type|placeholder|for)\s*=\s*["\'][^"\']{3,30}["\'])',
             html_snippet,
             re.IGNORECASE,
         )
