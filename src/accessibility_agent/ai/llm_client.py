@@ -72,52 +72,56 @@ class DisabledLLMClient(BaseLLMClient):
 
 class GeminiLLMClient(BaseLLMClient):
     """
-    Google Gemini client using the google-generativeai SDK.
+    Google Gemini client using the google-genai SDK (v1.0+).
 
+    Migrated from deprecated google.generativeai to google.genai.
     Requires: A11Y_GOOGLE_API_KEY set in environment.
     """
 
     def __init__(self) -> None:
-        import google.generativeai as genai  # type: ignore
+        from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
 
         key = settings.google_api_key
         if not key:
             raise ValueError("A11Y_GOOGLE_API_KEY is required for Gemini provider.")
 
-        genai.configure(api_key=key.get_secret_value())
-        self._model = genai.GenerativeModel(
-            model_name=settings.llm_model,
-            generation_config={
-                "temperature": settings.llm_temperature,
-                "max_output_tokens": settings.llm_max_tokens,
-            },
-        )
-        log.info("llm_client.gemini_initialized", model=settings.llm_model)
+        self._client = genai.Client(api_key=key.get_secret_value())
+        self._types = types
+
+        # Normalize: google-genai SDK requires "models/" prefix
+        model = settings.llm_model
+        if model and not model.startswith("models/"):
+            model = f"models/{model}"
+        self._model = model
+        log.info("llm_client.gemini_initialized", model=self._model)
 
     async def generate(self, prompt: str, system: str = "", temperature: float | None = None) -> LLMResponse | None:
-        import google.generativeai as genai  # type: ignore
         full_prompt = f"{system}\n\n{prompt}" if system else prompt
         effective_temp = temperature if temperature is not None else settings.llm_temperature
         try:
-            log.debug("llm_client.generating", provider="gemini", prompt_len=len(full_prompt), temperature=effective_temp)
-            model = genai.GenerativeModel(
-                model_name=settings.llm_model,
-                generation_config={"temperature": effective_temp, "max_output_tokens": settings.llm_max_tokens},
+            log.debug("llm_client.generating", provider="google", prompt_len=len(full_prompt), temperature=effective_temp)
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=full_prompt,
+                config=self._types.GenerateContentConfig(
+                    temperature=effective_temp,
+                    max_output_tokens=settings.llm_max_tokens,
+                ),
             )
-            response = model.generate_content(full_prompt)
             text = response.text
             usage = getattr(response, "usage_metadata", None)
             prompt_tokens = getattr(usage, "prompt_token_count", 0) if usage else 0
             completion_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
-            log.info("llm_client.response_received", provider="gemini", prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
-            return LLMResponse(text=text, model=settings.llm_model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+            log.info("llm_client.response_received", provider="google", prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+            return LLMResponse(text=text, model=self._model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
         except Exception as exc:
-            log.error("llm_client.generate_failed", provider="gemini", error=str(exc))
+            log.error("llm_client.generate_failed", provider="google", error=str(exc))
             return None
 
     @property
     def provider_name(self) -> str:
-        return "gemini"
+        return "google"
 
 
 class OpenAILLMClient(BaseLLMClient):
@@ -238,7 +242,9 @@ class GroqLLMClient(BaseLLMClient):
 
         self._current_key_idx = 0
         self._client = AsyncGroq(api_key=self._keys[self._current_key_idx], max_retries=0)
-        self._model = settings.llm_model
+        # Groq uses its own model — never inherit from settings.llm_model (which is a Gemini name)
+        # openai/gpt-oss-120b is Groq's best currently available chat model
+        self._model = "openai/gpt-oss-120b"
         log.info("llm_client.groq_initialized", model=self._model, total_keys=len(self._keys))
 
     async def generate(self, prompt: str, system: str = "", temperature: float | None = None) -> LLMResponse | None:
@@ -308,6 +314,50 @@ class GroqLLMClient(BaseLLMClient):
         return "groq"
 
 
+class GeminiWithGroqFallbackClient(BaseLLMClient):
+    """
+    Tries Gemini first. If Gemini fails for any reason (quota exhausted,
+    model deprecated, API key issue), automatically falls back to Groq.
+
+    This gives 14,400 free requests/day (Groq) instead of Gemini's 20/day.
+    Both API keys must be configured. If Groq also fails, returns None.
+    """
+
+    def __init__(self) -> None:
+        self._gemini = GeminiLLMClient()
+        try:
+            self._groq: GroqLLMClient | None = GroqLLMClient()
+        except Exception as exc:
+            log.warning("llm_client.groq_fallback_unavailable", error=str(exc))
+            self._groq = None
+        log.info("llm_client.fallback_chain_initialized",
+                 gemini_model=settings.llm_model,
+                 groq_available=self._groq is not None)
+
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        temperature: float | None = None,
+    ) -> "LLMResponse | None":
+        # Try Gemini first
+        result = await self._gemini.generate(prompt, system_prompt, temperature)
+        if result is not None:
+            return result
+
+        # Gemini failed (quota, 404, auth, etc.) — try Groq
+        if self._groq is not None:
+            log.warning("llm_client.gemini_failed_switching_to_groq")
+            return await self._groq.generate(prompt, system_prompt, temperature)
+
+        log.error("llm_client.all_providers_failed")
+        return None
+
+    @property
+    def provider_name(self) -> str:
+        return "google_groq_fallback"
+
+
 def create_llm_client() -> BaseLLMClient:
     """
     Factory — returns the correct LLM client based on settings.
@@ -320,6 +370,12 @@ def create_llm_client() -> BaseLLMClient:
             return GeminiLLMClient()
         except Exception as exc:
             log.error("llm_client.gemini_init_failed", error=str(exc))
+            return DisabledLLMClient()
+    elif settings.llm_provider == LLMProvider.GOOGLE_GROQ_FALLBACK:
+        try:
+            return GeminiWithGroqFallbackClient()
+        except Exception as exc:
+            log.error("llm_client.fallback_init_failed", error=str(exc))
             return DisabledLLMClient()
     elif settings.llm_provider == LLMProvider.OPENAI:
         try:
